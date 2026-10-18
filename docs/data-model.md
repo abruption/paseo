@@ -55,6 +55,8 @@ $PASEO_HOME/
 │       └── {agentId}.json               # One file per agent
 ├── schedules/
 │   └── {scheduleId}.json                # One file per schedule
+├── agent-notifications/
+│   └── {notificationId}.json            # Finish notifications not yet delivered to their caller
 ├── projects/
 │   ├── projects.json                    # Project registry
 │   ├── workspaces.json                  # Workspace registry
@@ -551,7 +553,27 @@ Simple set of Expo push notification tokens. Loaded with permissive parsing (fil
 
 ---
 
-## 7. Daemon meta files
+## 7. Pending Finish Notifications
+
+**Path:** `$PASEO_HOME/agent-notifications/{id}.json`
+
+One file per child finish notification that its caller has not received yet. The daemon writes it before the first delivery attempt and deletes it only when the caller accepts the prompt, the caller is archived, or the caller no longer exists. A failed delivery keeps its file. On startup, after plugin providers settle, the daemon delivers every remaining file in `createdAt` order per caller; a failure stops that caller's queue until the next start, so later notifications never overtake an earlier one.
+
+| Field           | Type                                                           | Description                                             |
+| --------------- | -------------------------------------------------------------- | ------------------------------------------------------- |
+| `id`            | `string`                                                       | Envelope message ID sent to the caller                  |
+| `callerAgentId` | `string`                                                       | Agent that receives the notification                    |
+| `childAgentId`  | `string`                                                       | Agent the notification reports on                       |
+| `event`         | `"finished" \| "errored" \| "permission-required" \| "closed"` | Notification event                                      |
+| `body`          | `string`                                                       | Notification text, fixed when the child reached `event` |
+| `createdAt`     | `string` (ISO 8601)                                            |                                                         |
+| `state`         | `"queued" \| "dispatching"`                                    | Whether the provider may already hold the prompt        |
+
+A `dispatching` file means the provider may hold the prompt: the daemon stopped before deleting the file, or the delivery failed with an error that does not prove the prompt was refused. Recovery loads the caller and looks for the envelope ID in its provider history; it resends only when the ID is absent. This depends on the provider's transcript replaying the envelope.
+
+---
+
+## 8. Daemon meta files
 
 These small files are not validated as full Zod schemas but are persisted under `$PASEO_HOME` for daemon identity and runtime coordination.
 

@@ -111,20 +111,21 @@ function createFinishNotificationScenario(
     return options?.childLastAssistantMessage ?? null;
   });
   Reflect.set(agentManager, "tryRunOutOfBand", () => false);
-  Reflect.set(agentManager, "hasInFlightRun", () => Boolean(options?.parentPromptError));
+  Reflect.set(agentManager, "hasInFlightRun", () => false);
+  Reflect.set(agentManager, "steerAgentRun", async () => {
+    steerAttemptCount += 1;
+    return { status: "unavailable" };
+  });
   Reflect.set(agentManager, "steerOrReplaceActiveTurn", async () => {
     steerAttemptCount += 1;
     return { status: "inactive" };
   });
   Reflect.set(agentManager, "streamAgent", (_agentId: string, prompt: string) => {
+    resolveParentPrompt?.(prompt);
+    if (options?.parentPromptError) throw options.parentPromptError;
     parentPrompted = true;
     parentPrompts.push(prompt);
-    resolveParentPrompt?.(prompt);
     return (async function* noop() {})();
-  });
-  Reflect.set(agentManager, "replaceAgentRun", async (_agentId: string, prompt: string) => {
-    resolveParentPrompt?.(prompt);
-    throw options?.parentPromptError;
   });
 
   const agentStorage: AgentStorage = Object.create(AgentStorage.prototype);
@@ -290,7 +291,8 @@ test("finish notifications tell the parent the child's last assistant message", 
     },
     text: "Agent child-agent (Child Agent) finished.\n\n<agent-response>\nImplemented the cleanup and all checks pass.\n</agent-response>",
   });
-  expect(scenario.steerAttemptCount()).toBe(1);
+  // An idle caller gets a new turn; there is no active turn to steer.
+  expect(scenario.steerAttemptCount()).toBe(0);
 });
 
 test("finish notifications truncate oversized child responses", async () => {
@@ -454,7 +456,7 @@ test("follow-up finish notifications do not require a parent relationship", asyn
 test("finish notifications log a rejected parent prompt without an unhandled rejection", async () => {
   const captured = createCapturedLogger();
   const scenario = createFinishNotificationScenario({
-    parentPromptError: new Error("parent provider rejected replacement"),
+    parentPromptError: new Error("parent provider rejected the prompt"),
     logger: captured.logger,
   });
 
@@ -468,7 +470,7 @@ test("finish notifications log a rejected parent prompt without an unhandled rej
       childAgentId: "child-agent",
       callerAgentId: "caller-agent",
       reason: "finished",
-      err: expect.objectContaining({ message: "parent provider rejected replacement" }),
+      err: expect.objectContaining({ message: "parent provider rejected the prompt" }),
     }),
   ]);
 });
