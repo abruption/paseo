@@ -557,7 +557,7 @@ Simple set of Expo push notification tokens. Loaded with permissive parsing (fil
 
 **Path:** `$PASEO_HOME/agent-notifications/{id}.json`
 
-One file per child finish notification that its caller has not received yet. The daemon writes it before the first delivery attempt and deletes it only when the caller accepts the prompt, the caller is archived, or the caller no longer exists. A failed delivery keeps its file. On startup, after plugin providers settle, the daemon delivers every remaining file in `createdAt` order per caller; a failure stops that caller's queue until the next start, so later notifications never overtake an earlier one.
+One file per child finish notification that its caller has not received yet. The daemon writes it when the child event happens, even while an earlier notification from the same watcher still waits for a busy caller, and deletes it only when the caller accepts the prompt, the caller is archived, or the caller no longer exists. A failed delivery keeps its file. One watcher delivers its notifications in event order. On startup, after plugin providers settle, the daemon delivers each caller's remaining files in `createdAt` order and stops that caller's leftovers at the first failure until the next start. Notifications created after startup do not wait for leftovers, so a retried leftover can arrive after them.
 
 | Field           | Type                                                           | Description                                             |
 | --------------- | -------------------------------------------------------------- | ------------------------------------------------------- |

@@ -16,7 +16,12 @@ import { join } from "node:path";
 import { createTestLogger } from "../../test-utils/test-logger.js";
 import { AgentManager } from "./agent-manager.js";
 import { AgentStorage } from "./agent-storage.js";
-import { setupFinishNotification, waitForAgentRunStartWithTimeout } from "./agent-prompt.js";
+import {
+  registerFinishNotificationOutbox,
+  setupFinishNotification,
+  waitForAgentRunStartWithTimeout,
+} from "./agent-prompt.js";
+import { FinishNotificationOutbox } from "./finish-notification-outbox.js";
 import type { AgentManagerEvent, ManagedAgent } from "./agent-manager.js";
 import type {
   AgentClient,
@@ -54,6 +59,9 @@ interface FinishNotificationScenarioOptions {
   childParentAgentId?: string | null;
   requireParentOwnership?: boolean;
   parentPromptError?: Error;
+  /** The caller is running a turn its provider cannot be steered into. */
+  callerBusy?: boolean;
+  outbox?: FinishNotificationOutbox;
   logger?: Logger;
 }
 
@@ -69,6 +77,8 @@ interface FinishNotificationScenario {
   parentPrompts(): string[];
   steerAttemptCount(): number;
   wasParentPrompted(): boolean;
+  /** Ends the busy caller's turn. */
+  releaseCaller(): void;
 }
 
 function createFinishNotificationScenario(
@@ -79,6 +89,11 @@ function createFinishNotificationScenario(
   let parentPrompted = false;
   let steerAttemptCount = 0;
   const parentPrompts: string[] = [];
+  let callerBusy = options?.callerBusy ?? false;
+  let releaseCallerRun!: () => void;
+  const callerRunSettled = new Promise<void>((resolve) => {
+    releaseCallerRun = resolve;
+  });
 
   const childAgent: ManagedAgent = Object.create(null);
   Reflect.set(childAgent, "id", "child-agent");
@@ -111,7 +126,9 @@ function createFinishNotificationScenario(
     return options?.childLastAssistantMessage ?? null;
   });
   Reflect.set(agentManager, "tryRunOutOfBand", () => false);
-  Reflect.set(agentManager, "hasInFlightRun", () => false);
+  Reflect.set(agentManager, "hasInFlightRun", () => callerBusy);
+  Reflect.set(agentManager, "waitForInFlightRunToSettle", () => callerRunSettled);
+  if (options?.outbox) registerFinishNotificationOutbox(agentManager, options.outbox);
   Reflect.set(agentManager, "steerAgentRun", async () => {
     steerAttemptCount += 1;
     return { status: "unavailable" };
@@ -265,6 +282,10 @@ function createFinishNotificationScenario(
     wasParentPrompted() {
       return parentPrompted;
     },
+    releaseCaller() {
+      callerBusy = false;
+      releaseCallerRun();
+    },
   };
 }
 
@@ -367,6 +388,34 @@ test("finish notifications survive permission responses", async () => {
     expect(scenario.parentPrompts()).toHaveLength(2);
   });
   expect(scenario.parentPrompts()[1]).toContain("finished.");
+});
+
+test("a child completion is persisted while its permission notification waits for a busy caller", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "finish-notification-busy-permission-"));
+  const outbox = new FinishNotificationOutbox({ directory: workdir, logger: createTestLogger() });
+  const scenario = createFinishNotificationScenario({ callerBusy: true, outbox });
+  try {
+    scenario.startWatchingChild();
+    scenario.requestChildPermission();
+    scenario.resolveChildPermission();
+    scenario.finishChild();
+
+    await vi.waitFor(async () => {
+      expect((await outbox.list()).map((notification) => notification.event)).toEqual([
+        "permission-required",
+        "finished",
+      ]);
+    });
+    expect(scenario.parentPrompts()).toEqual([]);
+
+    scenario.releaseCaller();
+    await vi.waitFor(() => expect(scenario.parentPrompts()).toHaveLength(2));
+    await vi.waitFor(async () => expect(await outbox.list()).toEqual([]));
+    expect(scenario.parentPrompts()[0]).toContain("needs permission.");
+    expect(scenario.parentPrompts()[1]).toContain("finished.");
+  } finally {
+    rmSync(workdir, { recursive: true, force: true });
+  }
 });
 
 test("an idle permission resolution waits for the resumed run to finish", async () => {

@@ -40,6 +40,18 @@ export class FinishNotificationOutbox {
     await writeJsonFileAtomic(this.fileFor(notification.id), notification);
   }
 
+  /** The record as it is on disk now, or null once it was removed. */
+  async get(id: string): Promise<PendingFinishNotification | null> {
+    try {
+      return PendingFinishNotificationSchema.parse(
+        JSON.parse(await readFile(this.fileFor(id), "utf8")),
+      );
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+      throw error;
+    }
+  }
+
   async remove(id: string): Promise<void> {
     await rm(this.fileFor(id), { force: true });
   }
