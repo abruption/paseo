@@ -120,7 +120,7 @@ export const ko: TranslationResources = {
       desktop: "에이전트에게 메시지를 보내거나 @files 태그, /commands, /skills를 사용하세요",
       mobile: "메시지, @files, /commands",
       fallback: "메시지...",
-      terminal: "프롬프트",
+      terminal: "프롬프트 입력",
     },
     input: {
       accessibilityLabel: "에이전트에게 메시지...",
@@ -2217,7 +2217,7 @@ export const ko: TranslationResources = {
     },
     layout: {
       openInSidePane: {
-        title: "열기 위치",
+        title: "열리는 위치",
         destinations: {
           main: "메인 패널",
           side: "사이드 패널",
@@ -2246,7 +2246,7 @@ export const ko: TranslationResources = {
           },
           pullRequests: {
             label: "탐색기 사이드바에서 PR을 클릭할 때",
-            description: "PR 상세 정보를 변경 사항 옆에 엽니다",
+            description: "PR 상세 정보를 '변경 사항' 패널 옆에 엽니다",
           },
           serviceUrls: { label: "스크립트의 서비스 URL을 클릭할 때" },
         },
